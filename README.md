@@ -102,4 +102,20 @@ cd backend
 
 # docker起動
 docker-compose up -d
+
+# Swagger UI
+http://localhost:8000/docs
+
+# API定義データ
+http://localhost:8000/openapi.json
+```
+
+## データを手動でいれる方法
+
+```bash
+docker exec -it mysql_db mysql -u appuser -papppass appdb
+
+# MySQL
+INSERT INTO users (name, email, password, streak_days, last_stamped_date) VALUES ('テストユーザー', 'test@example.com', 'password123', 0, NULL);
+
 ```
