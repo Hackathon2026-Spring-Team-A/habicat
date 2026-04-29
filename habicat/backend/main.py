@@ -1,43 +1,76 @@
 import time
 from datetime import date, timedelta
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
-from db.models import User, Base
 from db.database import get_db, engine
+from db.models import User, Report, Base
 
 app = FastAPI()
 
-@app.post("/stamp")
 
-def stamp(user_id: int, db: Session = Depends(get_db)):
     """
-    指定されたユーザーのスタンプ（習慣記録）を押す。
-    - 当日すでに押している場合はスキップ
-    - 前日に押していれば継続日数を加算、それ以外はリセット
+    運動記録を提出し、スタンプ（継続日数）を更新する。
+    - 対象日の report がなければ新規作成、あれば content を更新
+    - 当日すでにスタンプ済みの場合は継続日数を変更しない
+    - 前日にスタンプ済みなら streak_days を加算、それ以外はリセット
     """
 
     user = db.query(User).filter(User.id == user_id).first()
 
     if not user:
-        return {"error": "user not found"}
+        raise HTTPException(status_code=404, detail="user not found")
 
-    today = date.today()
+    target_date = req.training_date or date.today()
 
-    if user.last_stamped_date == today:
-        return {"message": "already stamped"}
+    # 継続日数更新（対象日初回のみ）
+    already_stamped = user.last_stamped_date == target_date
+    if not already_stamped:
+        yesterday = target_date - timedelta(days=1)
+        yesterday_report = (
+            db.query(Report)
+            .filter(Report.user_id == user_id, Report.training_date == yesterday, Report.is_submit == True)
+            .first()
+        )
+        # 昨日、レポート提出したか
+        if yesterday_report:
+            user.streak_days += 1
+        else:
+            user.streak_days = 1
+        user.last_stamped_date = target_date
 
-    if user.last_stamped_date == today - timedelta(days=1):
-        user.streak_days += 1
+    # レポート作成 or 更新
+    report = (
+        db.query(Report)
+        .filter(Report.user_id == user_id, Report.training_date == target_date)
+        .first()
+    )
 
+    if report:
+        report.content = req.content
+        report.is_submit = True
     else:
-        user.streak_days = 0
-
-    user.last_stamped_date = today
+        report = Report(
+            user_id=user_id,
+            training_date=target_date,
+            content=req.content,
+            is_submit=True,
+        )
+        db.add(report)
 
     db.commit()
+    db.refresh(report)
 
-    return {"streak_days": user.streak_days}
+    return {
+        "id": report.id,
+        "user_id": report.user_id,
+        "training_date": report.training_date,
+        "content": report.content,
+        "is_submit": report.is_submit,
+        "streak_days": user.streak_days,
+        "already_stamped": already_stamped,
+    }
 
 @app.on_event("startup")
 def startup():
