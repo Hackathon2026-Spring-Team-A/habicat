@@ -5,8 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function App() {
   return (
-      <SafeAreaView>
-        <CalendarView />
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={{ flex: 1}}>
+          <CalendarView />
+        </View>
       </SafeAreaView>
   );
 }
