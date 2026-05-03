@@ -4,21 +4,46 @@ from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
-from db.database import get_db, engine
+from apscheduler.schedulers.background import BackgroundScheduler
 from db.models import User, Report, Base
+from db.database import get_db, engine, SessionLocal
 
 app = FastAPI()
+scheduler = BackgroundScheduler(timezone="Asia/Tokyo")
 
 
+def reset_streak_if_not_submitted():
+    """昨日 is_submit=True のレポートがないユーザーの streak_days を 0 にする"""
+    db = SessionLocal()
+    try:
+        yesterday = date.today() - timedelta(days=1)
+        users = db.query(User).filter(User.streak_days > 0).all()
+        for user in users:
+            submitted = (
+                db.query(Report)
+                .filter(Report.user_id == user.id, Report.training_date == yesterday, Report.is_submit == True)
+                .first()
+            )
+            if not submitted:
+                user.streak_days = 0
+        db.commit()
+    finally:
+        db.close()
+
+class ReportSubmitRequest(BaseModel):
+    content: str | None = None
+    training_date: date | None = None
+
+
+@app.post("/stamp/{user_id}")
+def submit_report(user_id: int, req: ReportSubmitRequest, db: Session = Depends(get_db)):
     """
     運動記録を提出し、スタンプ（継続日数）を更新する。
     - 対象日の report がなければ新規作成、あれば content を更新
     - 当日すでにスタンプ済みの場合は継続日数を変更しない
     - 前日にスタンプ済みなら streak_days を加算、それ以外はリセット
     """
-
     user = db.query(User).filter(User.id == user_id).first()
-
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
 
@@ -86,3 +111,11 @@ def startup():
             if i == 9:
                 raise
             time.sleep(3)
+
+    scheduler.add_job(reset_streak_if_not_submitted, "cron", hour=0, minute=0)
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+def shutdown():
+    scheduler.shutdown()
