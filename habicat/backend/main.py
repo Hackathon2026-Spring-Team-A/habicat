@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from apscheduler.schedulers.background import BackgroundScheduler
+import bcrypt
 from db.models import User, Report, Base
 from db.database import get_db, engine, SessionLocal
 
@@ -30,9 +31,27 @@ def reset_streak_if_not_submitted():
     finally:
         db.close()
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 class ReportSubmitRequest(BaseModel):
     content: str | None = None
     training_date: date | None = None
+
+
+@app.post("/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user or not bcrypt.checkpw(req.password.encode(), user.password.encode()):
+        raise HTTPException(status_code=401, detail="メールアドレスまたはパスワードが正しくありません")
+    return {
+        "user_id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "streak_days": user.streak_days,
+        "menu_id": user.menu_id,
+    }
 
 
 @app.post("/stamp/{user_id}")
