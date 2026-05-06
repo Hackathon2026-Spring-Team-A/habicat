@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Calendar } from "react-native-calendars";
 import { View, Text, TouchableOpacity } from "react-native";
 import Svg, { Ellipse } from 'react-native-svg';
+import ReportModal from './ReportModal';
 
 // 猫の足跡スタンプコンポーネント
 const CatPaw = () => (
@@ -17,15 +18,19 @@ const CatPaw = () => (
 
 export default function CalendarViews () {
 
-    const [stamped, setStamped] = useState<Set<string>>(new Set());
+const [reports, setReports] = useState<Record<string, string>>({});
+const [modalVisible, setModalVisible] = useState(false);
+const [selectedDate, setSelectedDate] = useState('');
 
-    const toggleStamp = (dateString: string) => {
-            setStamped(prev => {
-                const next = new Set(prev);
-                next.has(dateString) ? next.delete(dateString) : next.add(dateString);
-                return next;
-            });
-    };
+const handleDayPress = (dateString: string) => {
+    setSelectedDate(dateString);
+    setModalVisible(true);
+};
+
+const handleSubmit = (memo: string) => {
+    setReports(prev => ({ ...prev, [selectedDate]: memo }));
+    setModalVisible(false);
+};
 
     return (
         <View style={{ paddingTop: 20, paddingHorizontal: 16 }}>
@@ -35,7 +40,14 @@ export default function CalendarViews () {
                     elevation: 3,
                     shadowColor: '#000',
                 }}
-                monthFormat={'yyyy M月'}
+                theme={{
+                    textSectionTitleColor: '#111',      // 曜日ヘッダーのデフォルト色
+                    textSectionTitleDisabledColor: '#ccc',
+                    dayTextColor: '#111',
+                    todayTextColor: '#fff',
+                    selectedDayTextColor: '#2a2929',
+                } as any}
+                monthFormat={'yyyy年 M月'}
                 hideExtraDays={true}
                 onDayPress={(day) => {
                     console.log(day);
@@ -49,14 +61,19 @@ export default function CalendarViews () {
                             paddingTop: 8,
                             paddingBottom: 8,
                         }}
-                        onPress={() => toggleStamp(date?.dateString ?? '')}
+                        onPress={() => handleDayPress(date?.dateString ?? '')}
                     >
                         <Text
                             style={{
                                 fontSize: 13,
-                                color:
-                                    state === 'disabled' ? '#ccc' :
-                                    state === 'today'    ? '#fff' : '#111',
+                                color: (() => {
+                                    if (state === 'disabled') return '#ccc';
+                                    if (state === 'today') return '#fff';
+                                    const dow = new Date(date?.dateString ?? '').getDay();
+                                    if (dow === 0) return '#ef4444'; // 日曜：赤
+                                    if (dow === 6) return '#60a5fa'; // 土曜：青
+                                    return '#111';
+                                })(),
                                 backgroundColor:
                                     state === 'today' ? '#4F46E5' : 'transparent',
                                 width: 26,
@@ -70,12 +87,20 @@ export default function CalendarViews () {
                             {date?.day}
                         </Text>
 
+                        {/* 日報提出済みなら足跡を表示 */}
                          <View style={{ height: 28, marginTop: 4, justifyContent: 'center' }}>
-                            {stamped.has(date?.dateString ?? '') && <CatPaw />}
+                            {reports[date?.dateString ?? ''] !== undefined && <CatPaw />}
                         </View>
 
                     </TouchableOpacity>
                 )}
+            />
+            <ReportModal
+                visible={modalVisible}
+                dateString={selectedDate || '2026-01-01'}
+                existingMemo={reports[selectedDate] ?? null}
+                onSubmit={handleSubmit}
+                onClose={() => setModalVisible(false)}
             />
         </View>
     );
