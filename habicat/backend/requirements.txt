@@ -5,3 +5,4 @@ sqlalchemy
 cryptography
 apscheduler
 bcrypt
+email-validator
