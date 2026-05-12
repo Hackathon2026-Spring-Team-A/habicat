@@ -1,12 +1,12 @@
 import time
 from datetime import date, timedelta
 from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from apscheduler.schedulers.background import BackgroundScheduler
 import bcrypt
-from db.models import User, Report, Base
+from db.models import Menu, User, Report, Base
 from db.database import get_db, engine, SessionLocal
 
 app = FastAPI()
@@ -32,12 +32,63 @@ def reset_streak_if_not_submitted():
         db.close()
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
+
+class SignupRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    menu_id: int | None = None
 
 class ReportSubmitRequest(BaseModel):
     content: str | None = None
     training_date: date | None = None
+
+
+@app.post("/signup")
+def signup(req: SignupRequest, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == req.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="このメールアドレスは既に使用されています")
+
+    # パスワード強度チェック: 大文字・小文字・数字をすべて含む必須
+    if (
+        len(req.password) < 8
+        or not any(c.isupper() for c in req.password)
+        or not any(c.islower() for c in req.password)
+        or not any(c.isdigit() for c in req.password)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="パスワードは8文字以上で、大文字・小文字・数字を含む必要があります",
+        )
+
+    if req.menu_id is not None:
+        menu = db.query(Menu).filter(Menu.id == req.menu_id).first()
+        if not menu:
+            raise HTTPException(status_code=400, detail="指定されたメニューが見つかりません")
+
+    hashed_password = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
+    user = User(
+        name=req.name,
+        email=req.email,
+        password=hashed_password,
+        streak_days=0,
+        last_stamped_date=None,
+        menu_id=req.menu_id,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "user_id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "streak_days": user.streak_days,
+        "menu_id": user.menu_id,
+    }
 
 
 @app.post("/login")
